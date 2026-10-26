@@ -1,0 +1,799 @@
+<!DOCTYPE html>
+<html lang="id" class="dark h-full">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>DASHBOARD HUNTER KILLER KART EV</title>
+    <!-- Tailwind CSS v3 (Lebih Stabil & Aman dari Error Reference) -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+        tailwind.config = {
+            darkMode: 'class',
+            theme: {
+                extend: {
+                    colors: {
+                        hudBg: '#050811',
+                        hudPanel: '#0c1322',
+                        hudBorder: '#1c2d4a',
+                        neonCyan: '#00f2fe',
+                        neonYellow: '#ffe600',
+                        neonGreen: '#10b981',
+                        neonRed: '#ff2a5f'
+                    },
+                    fontFamily: {
+                        sans: ['Inter', 'sans-serif'],
+                        mono: ['JetBrains Mono', 'monospace'],
+                        orbitron: ['Orbitron', 'sans-serif']
+                    }
+                }
+            }
+        }
+    </script>
+    <!-- Lucide Icons -->
+    <script src="https://unpkg.com/lucide@0.469.0/dist/umd/lucide.min.js"></script>
+    <!-- MQTT.js Client -->
+    <script src="https://unpkg.com/mqtt@5.10.1/dist/mqtt.min.js"></script>
+    <!-- Google Fonts: Orbitron & Inter -->
+    <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@400;600;800;900&family=Inter:wght@400;600;700;900&family=JetBrains+Mono:wght@500;700;800&display=swap" rel="stylesheet">
+
+    <style>
+        html, body {
+            min-height: 100%;
+            background-color: #050811;
+            background-image: repeating-linear-gradient(45deg, #050811 0, #050811 12px, #080d1a 12px, #080d1a 24px);
+            color: #f1f5f9;
+            font-family: 'Inter', sans-serif;
+            -webkit-font-smoothing: antialiased;
+        }
+
+        .hud-container {
+            border: 2px solid #1c2e4a;
+            border-radius: 20px;
+            background: rgba(8, 13, 24, 0.94);
+            box-shadow: 0 0 45px rgba(0, 242, 254, 0.1), inset 0 0 20px rgba(0, 0, 0, 0.85);
+        }
+
+        .hud-card {
+            background: linear-gradient(180deg, #0d1728 0%, #080e1a 100%);
+            border: 1px solid #1e3050;
+            border-radius: 12px;
+            box-shadow: inset 0 1px 1px rgba(255, 255, 255, 0.05);
+        }
+
+        .hud-card-accent-yellow { border-top: 3px solid #ffe600; }
+
+        .font-orbitron { font-family: 'Orbitron', sans-serif; }
+        .font-mono-custom { font-family: 'JetBrains Mono', monospace; }
+
+        .led-bar {
+            width: 100%;
+            height: 16px;
+            background: #090e17;
+            border: 1px solid #1c2e4a;
+            border-radius: 6px;
+            display: flex;
+            gap: 5px;
+            padding: 3px;
+        }
+        .led-segment {
+            flex: 1;
+            background: #1f2937;
+            border-radius: 3px;
+            transition: background-color 0.15s ease, box-shadow 0.15s ease;
+        }
+        .led-segment.active-green { background: #10b981; box-shadow: 0 0 10px #10b981; }
+        .led-segment.active-yellow { background: #ffe600; box-shadow: 0 0 10px #ffe600; }
+        .led-segment.active-red { background: #ff2a5f; box-shadow: 0 0 12px #ff2a5f; }
+
+        ::-webkit-scrollbar { width: 6px; height: 6px; }
+        ::-webkit-scrollbar-track { background: #050811; }
+        ::-webkit-scrollbar-thumb { background: #1e3050; border-radius: 4px; }
+    </style>
+</head>
+<body class="p-2 sm:p-4 min-h-screen flex flex-col justify-between">
+
+    <!-- MAIN HUD CONTAINER -->
+    <div class="hud-container w-full max-w-[1800px] mx-auto p-4 sm:p-6 flex flex-col gap-4 flex-grow">
+
+        <!-- 1. HEADER HUD BAR -->
+        <header class="flex flex-wrap items-center justify-between gap-4 pb-3 border-b border-slate-800/80 shrink-0">
+            <div class="flex items-center gap-3">
+                <div class="p-3 rounded-xl bg-cyan-500/10 border border-cyan-500/30 text-cyan-400">
+                    <i data-lucide="flag" class="w-7 h-7"></i>
+                </div>
+                <div>
+                    <h1 class="text-lg sm:text-2xl font-black font-orbitron text-white tracking-widest uppercase">
+                        DASHBOARD HUNTER KILLER KART EV
+                    </h1>
+                    <p class="text-xs text-slate-400 font-mono-custom tracking-wider">
+                        TITEN ELECTRIC VEHICLE TELEMETRY SYSTEM
+                    </p>
+                </div>
+            </div>
+
+            <!-- MQTT & EXPORT CONTROLS -->
+            <div class="flex items-center gap-2.5 flex-wrap text-xs sm:text-sm font-mono-custom">
+                <div class="flex items-center bg-slate-900 px-3 py-2 rounded-lg border border-slate-800">
+                    <span class="text-slate-500 mr-2 font-bold">WSS:</span>
+                    <input type="text" id="mqttHost" value="wss://i1a114cc.ala.asia-southeast1.emqxsl.com:8084/mqtt" class="bg-transparent text-cyan-400 outline-none w-52 sm:w-72 font-bold" placeholder="wss://...:8084/mqtt">
+                </div>
+
+                <div class="flex items-center bg-slate-900 px-3 py-2 rounded-lg border border-slate-800">
+                    <span class="text-slate-500 mr-2 font-bold">Topic:</span>
+                    <input type="text" id="mqttTopic" value="titen/ev/test" class="bg-transparent text-amber-400 outline-none w-32 font-bold" placeholder="titen/ev/test">
+                </div>
+
+                <!-- TOMBOL INDIKATOR STATUS REAL-TIME -->
+                <button id="mqttConnectBtn" onclick="toggleMqttConnection()" class="px-4 py-2 rounded-lg font-black text-slate-950 bg-cyan-400 hover:bg-cyan-300 transition flex items-center gap-2 shadow-lg shadow-cyan-500/20 cursor-pointer">
+                    <span id="statusLedPin" class="w-2.5 h-2.5 rounded-full bg-slate-950"></span>
+                    <span id="connectBtnText">CONNECT</span>
+                </button>
+
+                <button onclick="exportCSV()" class="px-4 py-2 rounded-lg font-bold text-slate-900 bg-cyan-400 hover:bg-cyan-300 transition flex items-center gap-1.5 cursor-pointer">
+                    <i data-lucide="download" class="w-4 h-4"></i> EXPORT CSV
+                </button>
+            </div>
+        </header>
+
+        <!-- 2. RPM SHIFT LIGHT BAR -->
+        <div class="w-full shrink-0">
+            <div class="led-bar" id="rpmLedBar">
+                <div class="led-segment"></div><div class="led-segment"></div><div class="led-segment"></div>
+                <div class="led-segment"></div><div class="led-segment"></div><div class="led-segment"></div>
+                <div class="led-segment"></div><div class="led-segment"></div><div class="led-segment"></div>
+                <div class="led-segment"></div><div class="led-segment"></div><div class="led-segment"></div>
+                <div class="led-segment"></div><div class="led-segment"></div><div class="led-segment"></div>
+            </div>
+        </div>
+
+        <!-- 3. THREE-COLUMN HUD COCKPIT LAYOUT -->
+        <div class="grid grid-cols-1 lg:grid-cols-12 gap-4 sm:gap-5 items-stretch flex-grow">
+
+            <!-- LEFT COLUMN: SUHU & SOC BATERAI (COL-3) -->
+            <div class="lg:col-span-3 flex flex-col gap-4">
+                <div class="hud-card p-4 sm:p-5 flex flex-col justify-between flex-grow">
+                    <div class="flex justify-between items-center text-xs font-mono-custom text-slate-400 border-b border-slate-800 pb-1.5">
+                        <span class="font-bold uppercase text-cyan-400">SUHU & SOC BATERAI</span>
+                        <span class="text-[11px]">THERMAL-SYS</span>
+                    </div>
+
+                    <!-- DONUT SOC -->
+                    <div class="flex flex-col items-center justify-center my-4">
+                        <div class="text-xs font-mono-custom text-slate-400 mb-2 font-bold">STATE OF CHARGE (SOC)</div>
+                        <div class="relative w-44 h-44 sm:w-52 sm:h-52 flex items-center justify-center">
+                            <svg class="w-full h-full transform -rotate-90" viewBox="0 0 36 36">
+                                <path class="text-slate-800" stroke-width="3.2" stroke="currentColor" fill="none" d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831" />
+                                <path id="socCircle" class="text-cyan-400 transition-all duration-500 ease-out" stroke-dasharray="0, 100" stroke-width="3.2" stroke-linecap="round" stroke="currentColor" fill="none" d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831" />
+                            </svg>
+                            <div class="absolute inset-0 flex flex-col items-center justify-center text-center">
+                                <span id="valSoc" class="text-4xl sm:text-5xl font-black font-orbitron text-white">0</span>
+                                <span class="text-sm font-bold text-cyan-400 font-mono-custom">%</span>
+                            </div>
+                        </div>
+                        <div class="flex justify-between w-full text-xs font-mono-custom text-slate-400 mt-3 px-2 border-t border-slate-800/80 pt-2">
+                            <span>EST RANGE</span>
+                            <span id="estRangeVal" class="text-cyan-400 font-bold">0 KM</span>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- KELOMPOK DATA SUHU -->
+                <div class="hud-card p-4 space-y-3 shrink-0">
+                    <div class="flex justify-between items-center text-xs font-mono-custom text-slate-400 border-b border-slate-800 pb-1.5">
+                        <span class="font-bold uppercase text-slate-300">KELOMPOK DATA SUHU</span>
+                        <span class="text-[11px]">CELSIUS</span>
+                    </div>
+
+                    <!-- Temp Batrai -->
+                    <div class="bg-slate-950/70 p-3 rounded-lg border border-slate-800/80">
+                        <div class="flex justify-between items-center text-xs font-mono-custom text-slate-400">
+                            <span class="font-bold">TEMP BATRAI</span>
+                            <i data-lucide="battery-charging" class="w-4 h-4 text-emerald-400"></i>
+                        </div>
+                        <div class="flex items-baseline justify-between mt-1">
+                            <span id="valBatTemp" class="text-2xl sm:text-3xl font-black font-orbitron text-white">0.0</span>
+                            <span class="text-sm font-bold text-emerald-400 font-mono-custom">°C</span>
+                        </div>
+                        <div class="w-full bg-slate-800 h-1.5 rounded-full overflow-hidden mt-2">
+                            <div id="barBatTemp" class="bg-emerald-400 h-full transition-all duration-300" style="width: 0%;"></div>
+                        </div>
+                    </div>
+
+                    <!-- Temp Kontroler -->
+                    <div class="bg-slate-950/70 p-3 rounded-lg border border-slate-800/80">
+                        <div class="flex justify-between items-center text-xs font-mono-custom text-slate-400">
+                            <span class="font-bold">TEMP KONTROLER</span>
+                            <i data-lucide="cpu" class="w-4 h-4 text-amber-400"></i>
+                        </div>
+                        <div class="flex items-baseline justify-between mt-1">
+                            <span id="valCtrlTemp" class="text-2xl sm:text-3xl font-black font-orbitron text-white">0.0</span>
+                            <span class="text-sm font-bold text-amber-400 font-mono-custom">°C</span>
+                        </div>
+                        <div class="w-full bg-slate-800 h-1.5 rounded-full overflow-hidden mt-2">
+                            <div id="barCtrlTemp" class="bg-amber-400 h-full transition-all duration-300" style="width: 0%;"></div>
+                        </div>
+                    </div>
+
+                    <!-- Temp Motor -->
+                    <div class="bg-slate-950/70 p-3 rounded-lg border border-slate-800/80">
+                        <div class="flex justify-between items-center text-xs font-mono-custom text-slate-400">
+                            <span class="font-bold">TEMP MOTOR</span>
+                            <i data-lucide="fan" class="w-4 h-4 text-cyan-400"></i>
+                        </div>
+                        <div class="flex items-baseline justify-between mt-1">
+                            <span id="valMotorTemp" class="text-2xl sm:text-3xl font-black font-orbitron text-white">0.0</span>
+                            <span class="text-sm font-bold text-cyan-400 font-mono-custom">°C</span>
+                        </div>
+                        <div class="w-full bg-slate-800 h-1.5 rounded-full overflow-hidden mt-2">
+                            <div id="barMotorTemp" class="bg-cyan-400 h-full transition-all duration-300" style="width: 0%;"></div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- CENTER COLUMN: LAP STATUS & STOPWATCH TIMER (COL-6) -->
+            <div class="lg:col-span-6 flex flex-col gap-4">
+
+                <!-- STATUS STRIP -->
+                <div class="grid grid-cols-3 gap-3 text-center font-mono-custom shrink-0">
+                    <div class="hud-card p-3">
+                        <div class="text-xs text-slate-400 font-bold">CURRENT LAP</div>
+                        <div id="currentLapDisplay" class="text-lg sm:text-2xl font-black font-orbitron text-cyan-400 uppercase mt-0.5">LAP 1</div>
+                    </div>
+                    <div class="hud-card p-3 border-cyan-500/40">
+                        <div class="text-xs text-slate-400 font-bold">GEAR</div>
+                        <div class="text-xl sm:text-3xl font-black font-orbitron text-white mt-0.5">1</div>
+                    </div>
+                    <div class="hud-card p-3">
+                        <div class="text-xs text-slate-400 font-bold">PIT STATUS</div>
+                        <div id="pitStatusText" class="text-sm sm:text-base font-bold font-orbitron text-emerald-400 flex items-center justify-center gap-1.5 mt-1">
+                            <span class="w-2.5 h-2.5 rounded-full bg-emerald-400 animate-pulse"></span> TRACK
+                        </div>
+                    </div>
+                </div>
+
+                <!-- MAIN DIGITAL STOPWATCH TIMER DISPLAY -->
+                <div class="hud-card p-6 sm:p-10 flex flex-col items-center justify-center text-center border-cyan-500/40 flex-grow">
+                    <div class="flex items-center gap-2 text-xs sm:text-sm font-mono-custom text-slate-400 uppercase tracking-widest font-bold">
+                        <i data-lucide="timer" class="w-5 h-5 text-cyan-400"></i>
+                        <span>TIMELAP WAKTU TOTAL</span>
+                    </div>
+
+                    <!-- DISPLAY TIMELAP -->
+                    <div id="totalTimeDisplay" class="text-5xl sm:text-7xl xl:text-8xl font-black font-orbitron text-cyan-400 tracking-tight my-4 sm:my-6 drop-shadow-[0_0_30px_rgba(0,242,254,0.45)]">
+                        00:00.000
+                    </div>
+
+                    <!-- TOPSPEED CARDS -->
+                    <div class="grid grid-cols-2 gap-4 w-full mt-2 pt-5 border-t border-slate-800/80">
+                        <div class="bg-slate-950/80 p-3 rounded-lg border border-slate-800 text-center">
+                            <div class="text-xs font-mono-custom text-slate-400 uppercase font-bold">TOPSPEED PER LAP</div>
+                            <div class="flex items-baseline justify-center gap-1.5 mt-1">
+                                <span id="lapTopSpeedVal" class="text-2xl sm:text-3xl font-black font-orbitron text-cyan-400">0.0</span>
+                                <span class="text-xs font-bold text-slate-400 font-mono-custom">km/h</span>
+                            </div>
+                        </div>
+                        <div class="bg-slate-950/80 p-3 rounded-lg border border-slate-800 text-center">
+                            <div class="text-xs font-mono-custom text-slate-400 uppercase font-bold">TOPSPEED KESELURUHAN</div>
+                            <div class="flex items-baseline justify-center gap-1.5 mt-1">
+                                <span id="overallTopSpeedVal" class="text-2xl sm:text-3xl font-black font-orbitron text-amber-400">0.0</span>
+                                <span class="text-xs font-bold text-slate-400 font-mono-custom">km/h</span>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- TIMELAP CONTROLS -->
+                    <div class="grid grid-cols-3 gap-3 w-full mt-5 font-mono-custom text-xs sm:text-sm font-bold">
+                        <button id="pauseBtn" onclick="toggleTimerPause()" class="py-3 rounded-lg bg-amber-400 hover:bg-amber-300 text-slate-950 transition flex items-center justify-center gap-1.5 uppercase cursor-pointer">
+                            <i data-lucide="pause" class="w-4 h-4"></i> <span id="pauseBtnText">PAUSE</span>
+                        </button>
+                        <button onclick="triggerNewLap()" class="py-3 rounded-lg bg-slate-800 hover:bg-slate-700 text-cyan-400 border border-slate-700 transition flex items-center justify-center gap-1.5 uppercase cursor-pointer">
+                            <i data-lucide="flag" class="w-4 h-4"></i> LAP
+                        </button>
+                        <button onclick="resetTelemetry()" class="py-3 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 border border-slate-700 transition flex items-center justify-center gap-1.5 uppercase cursor-pointer">
+                            <i data-lucide="rotate-ccw" class="w-4 h-4"></i> RESET
+                        </button>
+                    </div>
+                </div>
+
+                <!-- LAP HISTORY TABLE -->
+                <div class="hud-card p-4 shrink-0">
+                    <div class="flex justify-between items-center text-xs font-mono-custom text-slate-400 mb-2 border-b border-slate-800 pb-1.5">
+                        <span class="font-bold uppercase text-slate-300">LAP HISTORY</span>
+                        <span id="totalLapLogged" class="text-xs text-cyan-400 font-bold">0 Laps</span>
+                    </div>
+                    <div class="overflow-x-auto max-h-40">
+                        <table class="w-full text-left text-xs font-mono-custom">
+                            <thead class="text-slate-500 uppercase border-b border-slate-800 text-[11px]">
+                                <tr>
+                                    <th class="pb-1.5">Lap</th>
+                                    <th class="pb-1.5 text-center">Waktu Lap</th>
+                                    <th class="pb-1.5 text-right">Top Speed</th>
+                                </tr>
+                            </thead>
+                            <tbody id="lapLogTable" class="divide-y divide-slate-800/50 text-slate-300">
+                                <tr>
+                                    <td colspan="3" class="py-3 text-center text-slate-600 italic text-[11px]">
+                                        Belum ada riwayat lap tercatat.
+                                    </td>
+                                </tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+
+            </div>
+
+            <!-- RIGHT COLUMN: DATA LISTRIK & PERFORMA (COL-3) -->
+            <div class="lg:col-span-3 flex flex-col gap-4">
+                <div class="hud-card p-4 space-y-4 flex flex-col justify-between flex-grow">
+                    <div class="flex justify-between items-center text-xs font-mono-custom text-slate-400 border-b border-slate-800 pb-1.5">
+                        <span class="font-bold uppercase text-amber-400">DATA LISTRIK & PERFORMA</span>
+                        <span class="text-[11px]">POWER-SYS</span>
+                    </div>
+
+                    <!-- KECEPATAN & RPM MOTOR -->
+                    <div class="grid grid-cols-2 gap-2.5">
+                        <div class="bg-slate-950/70 p-3 rounded-lg border border-slate-800">
+                            <div class="text-xs font-mono-custom text-slate-400 font-bold">KECEPATAN</div>
+                            <div class="flex items-baseline justify-between mt-1">
+                                <span id="valSpeed" class="text-2xl sm:text-3xl font-black font-orbitron text-emerald-400">0.0</span>
+                                <span class="text-xs font-bold text-emerald-400 font-mono-custom">KM/H</span>
+                            </div>
+                            <div class="w-full bg-slate-800 h-1.5 rounded-full overflow-hidden mt-2">
+                                <div id="barSpeed" class="bg-emerald-400 h-full transition-all duration-300" style="width: 0%;"></div>
+                            </div>
+                        </div>
+
+                        <div class="bg-slate-950/70 p-3 rounded-lg border border-slate-800">
+                            <div class="text-xs font-mono-custom text-slate-400 font-bold">RPM MOTOR</div>
+                            <div class="flex items-baseline justify-between mt-1">
+                                <span id="valRpm" class="text-2xl sm:text-3xl font-black font-orbitron text-cyan-400">0</span>
+                                <span class="text-xs font-bold text-cyan-400 font-mono-custom">RPM</span>
+                            </div>
+                            <div class="w-full bg-slate-800 h-1.5 rounded-full overflow-hidden mt-2">
+                                <div id="barRpm" class="bg-cyan-400 h-full transition-all duration-300" style="width: 0%;"></div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- PARAMETER KELISTRIKAN -->
+                    <div class="pt-2 border-t border-slate-800 space-y-3">
+                        <div class="flex justify-between items-center text-xs font-mono-custom text-slate-400">
+                            <span class="font-bold uppercase text-amber-400 flex items-center gap-1.5">
+                                <i data-lucide="zap" class="w-4 h-4"></i> PARAMETER KELISTRIKAN
+                            </span>
+                            <span class="text-[10px]">HIGH VOLTAGE</span>
+                        </div>
+
+                        <!-- Tegangan Batrai -->
+                        <div class="bg-slate-950/70 p-3 rounded-lg border border-slate-800 hud-card-accent-yellow">
+                            <div class="flex justify-between items-center text-xs font-mono-custom text-slate-400">
+                                <span class="font-bold">TEGANGAN BATRAI</span>
+                                <i data-lucide="battery" class="w-4 h-4 text-amber-400"></i>
+                            </div>
+                            <div class="flex items-baseline justify-between mt-1">
+                                <span id="valBatVoltage" class="text-3xl sm:text-4xl font-black font-orbitron text-amber-400">0.0</span>
+                                <span class="text-xs font-bold text-amber-400 font-mono-custom">VOLT</span>
+                            </div>
+                        </div>
+
+                        <!-- Arus Batrai -->
+                        <div class="bg-slate-950/70 p-3 rounded-lg border border-slate-800">
+                            <div class="flex justify-between items-center text-xs font-mono-custom text-slate-400">
+                                <span class="font-bold">ARUS BATRAI</span>
+                                <i data-lucide="activity" class="w-4 h-4 text-cyan-400"></i>
+                            </div>
+                            <div class="flex items-baseline justify-between mt-1">
+                                <span id="valBatCurrent" class="text-3xl sm:text-4xl font-black font-orbitron text-white">0.0</span>
+                                <span class="text-xs font-bold text-cyan-400 font-mono-custom">AMP</span>
+                            </div>
+                        </div>
+
+                        <!-- Arus Kontroler -->
+                        <div class="bg-slate-950/70 p-3 rounded-lg border border-slate-800">
+                            <div class="flex justify-between items-center text-xs font-mono-custom text-slate-400">
+                                <span class="font-bold">ARUS KONTROLER</span>
+                                <i data-lucide="cpu" class="w-4 h-4 text-emerald-400"></i>
+                            </div>
+                            <div class="flex items-baseline justify-between mt-1">
+                                <span id="valCtrlCurrent" class="text-3xl sm:text-4xl font-black font-orbitron text-white">0.0</span>
+                                <span class="text-xs font-bold text-emerald-400 font-mono-custom">AMP</span>
+                            </div>
+                        </div>
+
+                        <!-- Daya (Power) -->
+                        <div class="bg-slate-950/70 p-3 rounded-lg border border-slate-800">
+                            <div class="flex justify-between items-center text-xs font-mono-custom text-slate-400">
+                                <span class="font-bold">DAYA (POWER)</span>
+                                <i data-lucide="bolt" class="w-4 h-4 text-amber-400"></i>
+                            </div>
+                            <div class="flex items-baseline justify-between mt-1">
+                                <span id="valPowerKw" class="text-3xl sm:text-4xl font-black font-orbitron text-amber-400">0.00</span>
+                                <span class="text-xs font-bold text-amber-400 font-mono-custom">KW</span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+        </div>
+
+    </div>
+
+    <!-- SCRIPT ENGINE -->
+    <script>
+        const telemetryState = {
+            hasDataReceived: false,
+            packetCount: 0,
+            
+            batVoltage: 0.0,
+            batCurrent: 0.0,
+            batTemp: 0.0,
+            soc: 0.0,
+            ctrlCurrent: 0.0,
+            powerKw: 0.0,
+            ctrlTemp: 0.0,
+            motorTemp: 0.0,
+            rpm: 0,
+            speed: 0.0,
+
+            isTimerRunning: false,
+            isTimerPaused: false,
+            totalElapsedTime: 0,
+            lapElapsedTime: 0,
+
+            currentLapNum: 1,
+            lapTopSpeed: 0.0,
+            overallTopSpeed: 0.0,
+
+            lapHistory: [],
+            dataBuffer: []
+        };
+
+        let timerInterval = null;
+        let mqttClient = null;
+
+        window.onload = function() {
+            lucide.createIcons();
+            document.getElementById('totalTimeDisplay').innerText = "00:00.000";
+            updateUIComponents();
+            setMqttUIState(false);
+        };
+
+        function toggleMqttConnection() {
+            if (mqttClient && mqttClient.connected) {
+                mqttClient.end(true, {}, () => {
+                    setMqttUIState(false);
+                });
+                return;
+            }
+
+            const brokerUrl = document.getElementById('mqttHost').value.trim();
+            const topic = document.getElementById('mqttTopic').value.trim();
+
+            if (!brokerUrl || !topic) {
+                alert("Harap isi URL WSS EMQX Cloud dan Topic dengan benar.");
+                return;
+            }
+
+            document.getElementById('connectBtnText').innerText = "CONNECTING...";
+
+            const clientId = 'TITEN_WEB_' + Math.random().toString(16).substring(2, 8);
+            
+            mqttClient = mqtt.connect(brokerUrl, {
+                clientId: clientId,
+                username: "HUNTERKILLEREV",
+                password: "TITENJUARA2026",
+                clean: true,
+                connectTimeout: 8000,
+                reconnectPeriod: 2000
+            });
+
+            mqttClient.on('connect', () => {
+                console.log('Terhubung ke EMQX Cloud:', brokerUrl);
+                setMqttUIState(true);
+                mqttClient.subscribe(topic, (err) => {
+                    if (err) {
+                        console.error("Gagal Subscribe ke topic: " + err.message);
+                    }
+                });
+            });
+
+            mqttClient.on('message', (topic, message) => {
+                try {
+                    const parsed = JSON.parse(message.toString());
+                    console.log("MQTT Received:", parsed); // Debug log payload masuk
+                    ingestTelemetryData(parsed);
+                } catch (e) {
+                    console.error("Format JSON Error:", e);
+                }
+            });
+
+            mqttClient.on('error', (err) => {
+                console.error('EMQX Cloud Error:', err);
+                setMqttUIState(false);
+            });
+
+            mqttClient.on('close', () => {
+                setMqttUIState(false);
+            });
+
+            mqttClient.on('offline', () => {
+                setMqttUIState(false);
+            });
+        }
+
+        function setMqttUIState(isConnected) {
+            const btn = document.getElementById('mqttConnectBtn');
+            const btnText = document.getElementById('connectBtnText');
+            const ledPin = document.getElementById('statusLedPin');
+            
+            if (isConnected) {
+                btnText.innerText = "CONNECTED";
+                ledPin.className = "w-2.5 h-2.5 rounded-full bg-slate-950 animate-ping";
+                btn.className = "px-4 py-2 rounded-lg font-black text-slate-950 bg-emerald-400 hover:bg-emerald-300 transition flex items-center gap-2 shadow-lg shadow-emerald-500/40 cursor-pointer border border-emerald-300";
+            } else {
+                btnText.innerText = "CONNECT";
+                ledPin.className = "w-2.5 h-2.5 rounded-full bg-slate-950";
+                btn.className = "px-4 py-2 rounded-lg font-black text-slate-950 bg-cyan-400 hover:bg-cyan-300 transition flex items-center gap-2 shadow-lg shadow-cyan-500/20 cursor-pointer border border-cyan-300";
+            }
+        }
+
+        function ingestTelemetryData(data) {
+            telemetryState.hasDataReceived = true;
+            telemetryState.packetCount++;
+
+            if (data.voltage !== undefined) telemetryState.batVoltage = parseFloat(data.voltage);
+            if (data.current !== undefined) {
+                telemetryState.batCurrent = parseFloat(data.current);
+                telemetryState.ctrlCurrent = parseFloat(data.current);
+            }
+            if (data.battery_temp !== undefined) telemetryState.batTemp = parseFloat(data.battery_temp);
+            if (data.soc !== undefined) telemetryState.soc = parseFloat(data.soc);
+            if (data.power !== undefined) telemetryState.powerKw = parseFloat(data.power) / 1000.0;
+            if (data.controller_temp !== undefined) telemetryState.ctrlTemp = parseFloat(data.controller_temp);
+            if (data.motor_temp !== undefined) telemetryState.motorTemp = parseFloat(data.motor_temp);
+            if (data.rpm !== undefined) telemetryState.rpm = parseInt(data.rpm);
+            if (data.speed_kmh !== undefined) telemetryState.speed = parseFloat(data.speed_kmh);
+
+            // DETEKSI OTOMATIS PEMICU TIMER (Arus > 5.0A)
+            if (Math.abs(telemetryState.batCurrent) > 5.0 && !telemetryState.isTimerRunning) {
+                startTimer();
+            }
+
+            // SINKRONISASI LANGSUNG (DIRECT SYNC) MENGIKUTI DATA LAP ESP32
+            if (data.lap !== undefined || data.lap_num !== undefined) {
+                const incomingLap = parseInt(data.lap !== undefined ? data.lap : data.lap_num);
+                
+                if (incomingLap > telemetryState.currentLapNum) {
+                    while (telemetryState.currentLapNum < incomingLap) {
+                        const lapRecord = {
+                            lapNum: telemetryState.currentLapNum,
+                            lapTimeStr: formatMs(telemetryState.lapElapsedTime > 0 ? telemetryState.lapElapsedTime : telemetryState.totalElapsedTime),
+                            topSpeed: telemetryState.lapTopSpeed
+                        };
+                        
+                        if (!telemetryState.lapHistory.some(h => h.lapNum === lapRecord.lapNum)) {
+                            telemetryState.lapHistory.unshift(lapRecord);
+                        }
+                        
+                        telemetryState.currentLapNum++;
+                        telemetryState.lapTopSpeed = 0.0;
+                        telemetryState.lapElapsedTime = 0;
+                    }
+                    document.getElementById('totalLapLogged').innerText = `${telemetryState.lapHistory.length} Laps`;
+                    renderLapTable();
+                }
+            }
+
+            if (telemetryState.speed > telemetryState.lapTopSpeed) telemetryState.lapTopSpeed = telemetryState.speed;
+            if (telemetryState.speed > telemetryState.overallTopSpeed) telemetryState.overallTopSpeed = telemetryState.speed;
+
+            recordDataPoint();
+            updateUIComponents();
+        }
+
+        function startTimer() {
+            if (telemetryState.isTimerRunning) return;
+            telemetryState.isTimerRunning = true;
+            telemetryState.isTimerPaused = false;
+            let lastTickTime = Date.now();
+
+            timerInterval = setInterval(() => {
+                if (!telemetryState.isTimerPaused) {
+                    const now = Date.now();
+                    const delta = now - lastTickTime;
+                    telemetryState.totalElapsedTime += delta;
+                    telemetryState.lapElapsedTime += delta;
+                    document.getElementById('totalTimeDisplay').innerText = formatMs(telemetryState.totalElapsedTime);
+                }
+                lastTickTime = Date.now();
+            }, 50);
+        }
+
+        function toggleTimerPause() {
+            if (!telemetryState.isTimerRunning) return;
+            telemetryState.isTimerPaused = !telemetryState.isTimerPaused;
+            const btnText = document.getElementById('pauseBtnText');
+            btnText.innerText = telemetryState.isTimerPaused ? "RESUME" : "PAUSE";
+        }
+
+        function updateUIComponents() {
+            document.getElementById('valSoc').innerText = Math.round(telemetryState.soc);
+            document.getElementById('estRangeVal').innerText = `${Math.round(telemetryState.soc * 0.5)} KM`;
+            const socCircle = document.getElementById('socCircle');
+            if (socCircle) {
+                socCircle.setAttribute('stroke-dasharray', `${Math.min(100, Math.max(0, telemetryState.soc))}, 100`);
+            }
+
+            document.getElementById('valBatTemp').innerText = telemetryState.batTemp.toFixed(1);
+            document.getElementById('valCtrlTemp').innerText = telemetryState.ctrlTemp.toFixed(1);
+            document.getElementById('valMotorTemp').innerText = telemetryState.motorTemp.toFixed(1);
+
+            document.getElementById('barBatTemp').style.width = `${Math.min(100, (telemetryState.batTemp / 100) * 100)}%`;
+            document.getElementById('barCtrlTemp').style.width = `${Math.min(100, (telemetryState.ctrlTemp / 100) * 100)}%`;
+            document.getElementById('barMotorTemp').style.width = `${Math.min(100, (telemetryState.motorTemp / 100) * 100)}%`;
+
+            document.getElementById('currentLapDisplay').innerText = `LAP ${telemetryState.currentLapNum}`;
+            document.getElementById('lapTopSpeedVal').innerText = telemetryState.lapTopSpeed.toFixed(1);
+            document.getElementById('overallTopSpeedVal').innerText = telemetryState.overallTopSpeed.toFixed(1);
+
+            document.getElementById('valSpeed').innerText = telemetryState.speed.toFixed(1);
+            document.getElementById('valRpm').innerText = telemetryState.rpm.toLocaleString();
+            document.getElementById('barSpeed').style.width = `${Math.min(100, (telemetryState.speed / 150) * 100)}%`;
+            document.getElementById('barRpm').style.width = `${Math.min(100, (telemetryState.rpm / 12000) * 100)}%`;
+
+            document.getElementById('valBatVoltage').innerText = telemetryState.batVoltage.toFixed(1);
+            document.getElementById('valBatCurrent').innerText = telemetryState.batCurrent.toFixed(1);
+            document.getElementById('valCtrlCurrent').innerText = telemetryState.ctrlCurrent.toFixed(1);
+            document.getElementById('valPowerKw').innerText = telemetryState.powerKw.toFixed(2);
+
+            updateRpmShiftLights(telemetryState.rpm);
+        }
+
+        function updateRpmShiftLights(rpm) {
+            const segments = document.querySelectorAll('#rpmLedBar .led-segment');
+            const total = segments.length;
+            const maxRpm = 10000;
+            const activeCount = Math.min(total, Math.floor((rpm / maxRpm) * total));
+
+            segments.forEach((seg, idx) => {
+                seg.className = 'led-segment';
+                if (idx < activeCount) {
+                    if (idx < total * 0.5) seg.classList.add('active-green');
+                    else if (idx < total * 0.8) seg.classList.add('active-yellow');
+                    else seg.classList.add('active-red');
+                }
+            });
+        }
+
+        function formatMs(ms) {
+            if (!ms || ms <= 0) return "00:00.000";
+            const mins = Math.floor(ms / 60000);
+            const secs = Math.floor((ms % 60000) / 1000);
+            const millis = Math.floor((ms % 1000) / 10);
+            return `${String(mins).padStart(2, '0')}:${String(secs).padStart(2, '0')}.${String(millis).padStart(2, '0')}`;
+        }
+
+        function triggerNewLap() {
+            if (telemetryState.totalElapsedTime === 0) return;
+            executeLapTransitionManual();
+        }
+
+        function executeLapTransitionManual() {
+            const lapRecord = {
+                lapNum: telemetryState.currentLapNum,
+                lapTimeStr: formatMs(telemetryState.lapElapsedTime > 0 ? telemetryState.lapElapsedTime : telemetryState.totalElapsedTime),
+                topSpeed: telemetryState.lapTopSpeed
+            };
+
+            telemetryState.lapHistory.unshift(lapRecord);
+            telemetryState.currentLapNum++;
+            telemetryState.lapTopSpeed = 0.0;
+            telemetryState.lapElapsedTime = 0;
+
+            document.getElementById('totalLapLogged').innerText = `${telemetryState.lapHistory.length} Laps`;
+            renderLapTable();
+        }
+
+        function renderLapTable() {
+            const tbody = document.getElementById('lapLogTable');
+            tbody.innerHTML = telemetryState.lapHistory.map(row => `
+                <tr class="hover:bg-slate-800/40 transition">
+                    <td class="py-1.5 font-bold text-cyan-400">LAP ${row.lapNum}</td>
+                    <td class="py-1.5 text-center font-bold text-white">${row.lapTimeStr}</td>
+                    <td class="py-1.5 text-right text-amber-400 font-bold">${row.topSpeed.toFixed(1)} km/h</td>
+                </tr>
+            `).join('');
+        }
+
+        function recordDataPoint() {
+            telemetryState.dataBuffer.push({
+                timestamp: new Date().toISOString(),
+                elapsedMs: telemetryState.totalElapsedTime,
+                lapNum: telemetryState.currentLapNum,
+                batVoltage: telemetryState.batVoltage,
+                batCurrent: telemetryState.batCurrent,
+                batTemp: telemetryState.batTemp,
+                soc: telemetryState.soc,
+                ctrlCurrent: telemetryState.ctrlCurrent,
+                powerKw: telemetryState.powerKw,
+                ctrlTemp: telemetryState.ctrlTemp,
+                motorTemp: telemetryState.motorTemp,
+                rpm: telemetryState.rpm,
+                speed: telemetryState.speed
+            });
+        }
+
+        function exportCSV() {
+            if (telemetryState.dataBuffer.length === 0) {
+                alert("Tidak ada data telemetri yang terekam!");
+                return;
+            }
+
+            const headers = [
+                "Timestamp_ISO", "Elapsed_ms", "Lap_Number", "Battery_Voltage_V", "Battery_Current_A",
+                "Battery_Temp_C", "SOC_Percent", "Controller_Current_A", "Power_kW",
+                "Controller_Temp_C", "Motor_Temp_C", "RPM", "Speed_kmh"
+            ];
+
+            const rows = [headers.join(",")];
+            telemetryState.dataBuffer.forEach(d => {
+                rows.push([
+                    d.timestamp, d.elapsedMs, d.lapNum, d.batVoltage, d.batCurrent,
+                    d.batTemp, d.soc, d.ctrlCurrent, d.powerKw,
+                    d.ctrlTemp, d.motorTemp, d.rpm, d.speed
+                ].join(","));
+            });
+
+            const csvBlob = new Blob([rows.join("\n")], { type: "text/csv;charset=utf-8;" });
+            const url = URL.createObjectURL(csvBlob);
+            const link = document.createElement("a");
+            link.href = url;
+            link.setAttribute("download", `HUNTER_KILLER_EV_Telemetry_${Date.now()}.csv`);
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
+        }
+
+        function resetTelemetry() {
+            if (timerInterval) clearInterval(timerInterval);
+
+            telemetryState.hasDataReceived = false;
+            telemetryState.packetCount = 0;
+            
+            telemetryState.batVoltage = 0.0;
+            telemetryState.batCurrent = 0.0;
+            telemetryState.batTemp = 0.0;
+            telemetryState.soc = 0.0;
+            telemetryState.ctrlCurrent = 0.0;
+            telemetryState.powerKw = 0.0;
+            telemetryState.ctrlTemp = 0.0;
+            telemetryState.motorTemp = 0.0;
+            telemetryState.rpm = 0;
+            telemetryState.speed = 0.0;
+
+            telemetryState.isTimerRunning = false;
+            telemetryState.isTimerPaused = false;
+            telemetryState.totalElapsedTime = 0;
+            telemetryState.lapElapsedTime = 0;
+            telemetryState.currentLapNum = 1;
+            telemetryState.lapTopSpeed = 0.0;
+            telemetryState.overallTopSpeed = 0.0;
+
+            telemetryState.lapHistory = [];
+            telemetryState.dataBuffer = [];
+
+            document.getElementById('totalTimeDisplay').innerText = "00:00.000";
+            document.getElementById('pauseBtnText').innerText = "PAUSE";
+            document.getElementById('totalLapLogged').innerText = "0 Laps";
+            document.getElementById('lapLogTable').innerHTML = `
+                <tr><td colspan="3" class="py-3 text-center text-slate-600 italic text-[11px]">Belum ada riwayat lap tercatat.</td></tr>
+            `;
+
+            updateUIComponents();
+        }
+    </script>
+</body>
+</html>
